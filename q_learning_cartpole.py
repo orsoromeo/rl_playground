@@ -14,13 +14,14 @@ high[3] = max_ang_vel
 low[1] = -max_vel
 low[3] = -max_ang_vel
 print("observation space max", high)
+intervals=[10, 50, 100, 50]
 
 def discretize_state(state):
      state[1] = low[1] if state[1] < low[1] else state[1]
      state[1] = high[1] if state[1] > high[1] else state[1]
      state[3] = low[3] if state[3] < low[3] else state[3]
      state[3] = high[3] if state[3] > high[3] else state[3]
-     discretized_state = (state - low)*np.array([10, 50, 10, 50])
+     discretized_state = (state - low)*np.array(intervals)
      discretized_state = np.round(discretized_state, 0).astype(int)
      return discretized_state
 
@@ -49,7 +50,7 @@ def simulate(Q):
 # Define Q-learning function
 def QLearning(env, learning, discount, epsilon, min_eps, episodes):
      # Determine size of discretized state space
-     num_states = (high - low)*np.array([10, 50, 10, 50])
+     num_states = (high - low)*np.array(intervals)
      print("number of states before", num_states)
      num_states = np.round(num_states, 0).astype(int) + 1
      print("number of states", num_states)
@@ -76,7 +77,7 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
 
           # Discretize state
           # print("State", state[0], low)
-          state_adj = (state[0] - low)*np.array([10, 50, 10, 50])
+          state_adj = (state[0] - low)*np.array(intervals)
           state_adj = np.round(state_adj, 0).astype(int)
 
           while done != True:
