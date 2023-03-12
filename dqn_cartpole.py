@@ -98,7 +98,6 @@ target_net.load_state_dict(policy_net.state_dict())
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(10000)
 
-
 steps_done = 0
 
 
@@ -113,7 +112,9 @@ def select_action(state):
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1)[1].view(1, 1)
+            action = policy_net(state).max(1)[1].view(1, 1)
+            print("Action is", action.item())
+            return action
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
@@ -221,7 +222,7 @@ if torch.cuda.is_available():
     num_episodes = 600
     print("Cuda is available!")
 else:
-    num_episodes = 50
+    num_episodes = 500
 
 for i_episode in range(num_episodes):
     # Initialize the environment and get it's state

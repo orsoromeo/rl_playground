@@ -2,8 +2,31 @@ import numpy as np
 import gym
 import matplotlib.pyplot as plt
 # Import and initialize Mountain Car Environment
-env = gym.make('MountainCar-v0', render_mode = "human")
+def get_greedy_action(Q, state_adj):
+     return np.argmax(Q[state_adj[0], state_adj[1]])
+
+def simulate(Q):
+     env = gym.make('MountainCar-v0', render_mode = "human")
+     state = env.reset()
+     state = state[0]
+     done = False
+     i=0
+     while not done:
+          print(state, env.observation_space.low)
+          discretized_state = (state - env.observation_space.low)*np.array([10, 100])
+          discretized_state = np.round(discretized_state, 0).astype(int)
+          action = np.argmax(Q[discretized_state[0], discretized_state[1]])
+          observation, reward, terminated, truncated, _ = env.step(action.item())
+          state = observation
+          print("iter", i, state)
+          #state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+          done = terminated or truncated
+          i+=1
+
+
+env = gym.make('MountainCar-v0')
 env.reset()
+
 # Define Q-learning function
 def QLearning(env, learning, discount, epsilon, min_eps, episodes):
      # Determine size of discretized state space
@@ -52,6 +75,7 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
                # Discretize state2
                state2_adj = (state2 - env.observation_space.low)*np.array([10, 100])
                state2_adj = np.round(state2_adj, 0).astype(int)
+               # print("Discrete state", state2_adj)
 
                #Allow for terminal states
                if done and state2[0] >= 0.5:
@@ -83,10 +107,10 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
 
      env.close()
 
-     return ave_reward_list
+     return ave_reward_list, Q
 
 # Run Q-learning algorithm
-rewards = QLearning(env, 0.2, 0.9, 0.8, 0, 50)
+rewards, q = QLearning(env, 0.2, 0.9, 0.8, 0, 1500)
 # Plot Rewards
 print("rewards", rewards)
 plt.plot(100*(np.arange(len(rewards)) + 1), rewards)
@@ -95,3 +119,5 @@ plt.ylabel('Average Reward')
 plt.title('Average Reward vs Episodes')
 plt.savefig('rewards.jpg')
 plt.show()
+
+simulate(q)
