@@ -24,7 +24,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-env = gym.make("CartPole-v1")
+env = gym.make("CartPole-v1", render_mode='human')
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -113,7 +113,7 @@ def select_action(state):
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             action = policy_net(state).max(1)[1].view(1, 1)
-            print("Action is", action.item())
+            #print("Action is", action.item())
             return action
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
@@ -210,7 +210,7 @@ def simulate_cartpole(env):
   while not done:
     action = select_greedy_action(state)
     observation, reward, terminated, truncated, _ = env.step(action.item())
-    print(i, state)
+    #print(i, state)
     state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
     done = terminated or truncated
     state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
