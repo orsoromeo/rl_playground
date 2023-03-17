@@ -203,7 +203,6 @@ def simulate_cartpole(env):
     print(i, state)
     state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
     done = terminated or truncated
-    state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
     i+=1
 
 simulate_cartpole(env)

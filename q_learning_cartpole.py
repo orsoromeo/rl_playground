@@ -31,7 +31,7 @@ def get_greedy_action(Q, state_adj):
      return np.argmax(Q[state_adj[0], state_adj[1]])
 
 def simulate(Q):
-     env = gym.make('CartPole-v1', render_mode = "human")
+     env = gym.make('CartPole-v1')
      state = env.reset()
      state = state[0]
      done = False
@@ -40,11 +40,11 @@ def simulate(Q):
           print(state, low)
           discretized_state = discretize_state(state)
           action = np.argmax(Q[discretized_state[0], discretized_state[1], discretized_state[2], discretized_state[3]])
-          observation, reward, terminated, truncated, _ = env.step(action.item())
+          observation, reward, done, _ = env.step(action.item())
           state = observation
           print("iter", i, state)
           #state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
-          done = terminated or truncated
+          # done = terminated or truncated
           i+=1
 
 # Define Q-learning function
@@ -92,7 +92,7 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
                     action = np.random.randint(0, env.action_space.n)
 
                # Get next state and reward
-               state2, reward, done, truncated, info = env.step(action)
+               state2, reward, done, info = env.step(action)
                # print("State", state2)
                # print("Reward", reward)
                # Discretize state2

@@ -57,6 +57,8 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
           state_adj = (state[0] - env.observation_space.low)*np.array([10, 100])
           state_adj = np.round(state_adj, 0).astype(int)
 
+          buffer = []
+
           while done != True:
                # Render environment for last five episodes
                if i >= (episodes - 20):
