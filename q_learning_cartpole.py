@@ -7,6 +7,7 @@ env.reset()
 
 high = env.observation_space.high
 low = env.observation_space.low
+print(low)
 max_vel = 3
 max_ang_vel = 5
 high[1] = max_vel
@@ -33,10 +34,10 @@ def get_greedy_action(Q, state_adj):
 def simulate(Q):
      env = gym.make('CartPole-v1')
      state = env.reset()
-     state = state[0]
      done = False
      i=0
      while not done:
+          env.render()
           print(state, low)
           discretized_state = discretize_state(state)
           action = np.argmax(Q[discretized_state[0], discretized_state[1], discretized_state[2], discretized_state[3]])
@@ -82,8 +83,8 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
 
           while done != True:
                # Render environment for last five episodes
-               if i >= (episodes - 20):
-                    env.render()
+               # if i >= (episodes - 20):
+               #      env.render()
 
                # Determine next action - epsilon greedy strategy
                if np.random.random() < 1 - epsilon:
@@ -133,7 +134,7 @@ def QLearning(env, learning, discount, epsilon, min_eps, episodes):
      return ave_reward_list, Q
 
 # Run Q-learning algorithm
-rewards, q = QLearning(env, 0.2, 0.9, 0.8, 0, 100000)
+rewards, q = QLearning(env, 0.2, 0.9, 0.8, 0, 1000)
 # Plot Rewards
 print("rewards", rewards)
 plt.plot(100*(np.arange(len(rewards)) + 1), rewards)
