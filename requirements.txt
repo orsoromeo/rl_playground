@@ -2,3 +2,4 @@ pytest
 numpy
 pandas
 open_spiel
+python-chess
