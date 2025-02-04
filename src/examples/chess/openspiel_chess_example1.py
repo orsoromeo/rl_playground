@@ -1,18 +1,9 @@
-# from open_spiel.python import games  # pylint: disable=unused-import
-# from open_spiel.python.mfg import games as mfg_games  # pylint: disable=unused-import
-# import pyspiel
-
-# for game in pyspiel.registered_games():
-#     print(game)
-
-
 """Python spiel example."""
 
-import random
 from absl import app
 from absl import flags
 import numpy as np
-
+import random
 from open_spiel.python import games  # pylint: disable=unused-import
 import pyspiel
 import chess
@@ -52,6 +43,7 @@ def main(_):
     action_string = state.action_to_string(state.current_player(), action)
     print("Player ", state.current_player(), ", randomly sampled action: ",
           action_string)
+    print("Available actions", len(state.legal_actions(state.current_player())))
     state.apply_action(action)
     save_board(state)
 

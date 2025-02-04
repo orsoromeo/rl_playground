@@ -41,7 +41,7 @@
 
 import jdc
 import numpy as np
-from rl_glue import RLGlue
+from RLGlue.rl_glue import RLGlue
 from Agent import BaseAgent 
 from Environment import BaseEnvironment  
 from manager import Manager

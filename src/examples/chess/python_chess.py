@@ -16,7 +16,7 @@ board = chess.Board(str(fen))
 # chess.svg.piece(chess.Piece.from_symbol("R"))  
 
 boardsvg = chess.svg.board(board=board)
-f = open("BoardVisualisedFromFEN.SVG", "w")
+f = open("test.SVG", "w")
 f.write(boardsvg)
 f.close()
 

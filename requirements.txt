@@ -3,3 +3,5 @@ numpy
 pandas
 open_spiel
 python-chess
+jdc
+ipython
