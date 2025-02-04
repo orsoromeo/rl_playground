@@ -83,6 +83,7 @@ class Manager:
             plt.ylabel("RMSVE", rotation=0, labelpad=20)
             plt.title("Root Mean Squared Value Error")
         self.fig.canvas.draw()
+        self.fig.savefig("myfig.png")
     
     def run_tests(self, values, RMSVE_threshold):
         assert self.true_values is not None, "This function can only be called once the true values are given during " +\
