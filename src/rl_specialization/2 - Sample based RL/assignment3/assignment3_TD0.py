@@ -15,11 +15,8 @@ from itertools import product
 from tqdm import tqdm
 
 def isInBounds(x, y, width, height):
-    # your code here
     return (x < height) and (y < width) and (x >= 0) and (y >= 0)
 
-# Create empty CliffWalkEnvironment class.
-# These methods will be filled in later cells.
 class CliffWalkEnvironment(BaseEnvironment):
     def env_init(self, env_info={}):
         reward = None
@@ -171,10 +168,10 @@ agent_info = {"discount": 1, "step_size": 0.01, "seed": 0}
 
 # The Optimal Policy that strides just along the cliff
 policy = np.ones(shape=(env_info['grid_width'] * env_info['grid_height'], 4)) * 0.25
-policy[36] = [1, 0, 0, 0]
-for i in range(24, 35):
-    policy[i] = [0, 0, 0, 1]
-policy[35] = [0, 0, 1, 0]
+# policy[36] = [1, 0, 0, 0]
+# for i in range(24, 35):
+#     policy[i] = [0, 0, 0, 1]
+# policy[35] = [0, 0, 1, 0]
 
 agent_info.update({"policy": policy})
 
