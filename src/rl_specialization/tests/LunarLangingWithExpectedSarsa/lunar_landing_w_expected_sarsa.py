@@ -579,7 +579,7 @@ class ActionValueNetwork:
     
 def run_experiment(num_episodes):
 
-    env = gym.make("LunarLander-v3")
+    env = gym.make("LunarLander-v3", max_episode_steps=500)
 
     agent_info = {
              'network_config': {
