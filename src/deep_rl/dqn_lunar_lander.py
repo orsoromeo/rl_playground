@@ -26,13 +26,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-env_name = "CartPole-v1"
+env_name = "LunarLander-v3"
 env = gym.make(env_name)
 
-# set up matplotlib
-is_ipython = 'inline' in matplotlib.get_backend()
-if is_ipython:
-    from IPython import display
 
 plt.ion()
 
@@ -226,10 +222,10 @@ for i_episode in range(num_episodes):
             break
 
 print('Complete')
-plot_durations(episode_durations, show_result=True)
+# plot_durations(episode_durations, show_result=True)
 plot_total_rewards(episode_total_rewards, show_result=True)
 plt.ioff()
-plt.savefig("figs/dqn_cartpole.png")
+plt.savefig("figs/dqn_lunar_lander.png")
 plt.show()
 
-simulate_cartpole()
+simulate()
