@@ -1,13 +1,18 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import torch
+import gymnasium as gym
+import time
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython:
     from IPython import display
 
-def simulate():
+# if gpu is to be used
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def simulate(env_name, select_action):
     env = gym.make(env_name, render_mode='human')
     # Initialize the environment and get it's state
     state, info = env.reset()
@@ -15,7 +20,7 @@ def simulate():
     done = False
     i=0
     while not done:
-      action = select_greedy_action(state)
+      action = select_action(state)
       observation, reward, terminated, truncated, _ = env.step(action.item())
       #print(i, state)
       state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
