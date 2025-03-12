@@ -13,6 +13,7 @@ Original file is located at
 
 import gymnasium as gym
 import math
+import numpy as np
 import random
 import matplotlib
 import matplotlib.pyplot as plt
@@ -36,7 +37,7 @@ plt.ion()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+                        ('state', 'action', 'reward', 'next_state', 'next_action'))
 
 
 class ReplayMemory(object):
@@ -59,13 +60,15 @@ class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
         self.layer1 = nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(128, n_actions)
+        self.layer2 = nn.Linear(128, 128)
+        self.layer3 = nn.Linear(128, n_actions)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
         x = F.relu(self.layer1(x))
-        return self.layer2(x)
+        x = F.relu(self.layer2(x))
+        return self.layer3(x)
 
 # BATCH_SIZE is the number of transitions sampled from the replay buffer
 # GAMMA is the discount factor as mentioned in the previous section
@@ -74,12 +77,13 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the AdamW optimizer
-BATCH_SIZE = 128
+BATCH_SIZE = 2
 GAMMA = 0.99
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 1000
-TAU = 0.005
+# EPS_START = 0.9
+# EPS_END = 0.05
+# EPS_DECAY = 1000
+EPS = 0.1
+# TAU = 0.005
 LR = 1e-4
 
 # Get number of actions from gym action space
@@ -89,32 +93,28 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
-target_net.load_state_dict(policy_net.state_dict())
 
-optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(10000)
+optimizer = optim.Adam(policy_net.parameters(), lr=LR, amsgrad=True)
+memory = ReplayMemory(2)
 
 steps_done = 0
 
+def softmax(preferences):
+    tau = 0.001
+    max_preferences = np.max(preferences, axis=1).reshape((BATCH_SIZE,1))
+    preferences = np.exp((preferences - max_preferences) / tau)
+    sums = np.sum(preferences, axis=1).reshape((BATCH_SIZE,1))
+    probs = preferences / sums
+    return probs
 
 def select_action(state):
     global steps_done
     sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-        math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold:
-        with torch.no_grad():
-            # t.max(1) will return the largest column value of each row.
-            # second column on max result is index of where max element was
-            # found, so we pick action with the larger expected reward.
-            action = policy_net(state).max(1)[1].view(1, 1)
-            #print("Action is", action.item())
-            return action
+    if sample > EPS:
+        return select_greedy_action(state)
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
-
 
 episode_durations = []
 episode_total_rewards = []
@@ -134,9 +134,11 @@ def optimize_model():
                                           batch.next_state)), device=device, dtype=torch.bool)
     non_final_next_states = torch.cat([s for s in batch.next_state
                                                 if s is not None])
+
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
+    next_action_batch = torch.cat(batch.next_action)
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
@@ -148,11 +150,23 @@ def optimize_model():
     # on the "older" target_net; selecting their best reward with max(1)[0].
     # This is merged based on the mask, such that we'll have either the expected
     # state value or 0 in case the state was final.
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
+    next_state_values = torch.zeros((BATCH_SIZE, 4), device=device)
     with torch.no_grad():
-        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0]
+        next_state_values[non_final_mask] = policy_net(non_final_next_states)
+        sarsa_expected_returns = next_state_values.gather(1, next_action_batch)
+    
+    probs = softmax(next_state_values.cpu().data.numpy())
+    expected_returns = np.sum(probs*next_state_values.cpu().data.numpy(), axis=1)
+    expected_returns = torch.tensor(expected_returns, device=device)
+    # print("Expected ret", expected_returns)
+
+    # for i, q_values in enumarate(next_state_values):
+    #     sarsa_expected_returns[i] = 
+
+    # print("non final next states", non_final_next_states)
+    # print("Next state values", next_state_values)
     # Compute the expected Q values
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+    expected_state_action_values = (expected_returns * GAMMA) + reward_batch
 
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
@@ -162,7 +176,7 @@ def optimize_model():
     optimizer.zero_grad()
     loss.backward()
     # In-place gradient clipping
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    # torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
 def select_greedy_action(state):
@@ -173,7 +187,7 @@ def select_greedy_action(state):
         return policy_net(state).max(1)[1].view(1, 1)
 
 if torch.cuda.is_available():
-    num_episodes = 600
+    num_episodes = 1500
     print("Cuda is available!")
 else:
     num_episodes = 500
@@ -182,10 +196,11 @@ for i_episode in range(num_episodes):
     # Initialize the environment and get it's state
     state, info = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    action = select_action(state)
     total_reward = 0
     for t in count():
-        action = select_action(state)
         observation, reward, terminated, truncated, _ = env.step(action.item())
+        next_action = select_action(state)
         total_reward += reward
         reward = torch.tensor([reward], device=device)
         done = terminated or truncated
@@ -196,21 +211,22 @@ for i_episode in range(num_episodes):
             next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
         # Store the transition in memory
-        memory.push(state, action, next_state, reward)
+        memory.push(state, action, reward, next_state, next_action)
 
         # Move to the next state
         state = next_state
+        action = next_action
 
         # Perform one step of the optimization (on the policy network)
         optimize_model()
 
         # Soft update of the target network's weights
         # θ′ ← τ θ + (1 −τ )θ′
-        target_net_state_dict = target_net.state_dict()
+        # target_net_state_dict = target_net.state_dict()
         policy_net_state_dict = policy_net.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        target_net.load_state_dict(target_net_state_dict)
+        # for key in policy_net_state_dict:
+        #     target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+        # target_net.load_state_dict(target_net_state_dict)
 
         if done:
             episode_durations.append(t + 1)
@@ -223,8 +239,7 @@ print('Complete')
 # plot_durations(episode_durations, show_result=True)
 plot_total_rewards(episode_total_rewards, show_result=True)
 plt.ioff()
-# filename = os.path.basename()
-# plt.savefig("figs/"+filename+"_lunar_lander_"+num_episodes+".png")
+plt.savefig("figs/expected_sarsa_lunar_lander_"+str(num_episodes)+"e_mse.png")
 plt.show()
 
 simulate(env_name, select_greedy_action)
