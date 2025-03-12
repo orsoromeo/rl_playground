@@ -79,11 +79,10 @@ class DQN(nn.Module):
 # LR is the learning rate of the AdamW optimizer
 BATCH_SIZE = 2
 GAMMA = 0.99
-# EPS_START = 0.9
-# EPS_END = 0.05
-# EPS_DECAY = 1000
-EPS = 0.1
-# TAU = 0.005
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 1000
+TAU = 0.005
 LR = 1e-4
 
 # Get number of actions from gym action space
@@ -93,6 +92,8 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
+target_net = DQN(n_observations, n_actions).to(device)
+target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.Adam(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(2)
@@ -110,8 +111,10 @@ def softmax(preferences):
 def select_action(state):
     global steps_done
     sample = random.random()
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+        math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    if sample > EPS:
+    if sample > eps_threshold:
         return select_greedy_action(state)
     else:
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
@@ -152,7 +155,7 @@ def optimize_model():
     # state value or 0 in case the state was final.
     next_state_values = torch.zeros((BATCH_SIZE, 4), device=device)
     with torch.no_grad():
-        next_state_values[non_final_mask] = policy_net(non_final_next_states)
+        next_state_values[non_final_mask] = target_net(non_final_next_states)
         sarsa_expected_returns = next_state_values.gather(1, next_action_batch)
     
     probs = softmax(next_state_values.cpu().data.numpy())
@@ -222,11 +225,11 @@ for i_episode in range(num_episodes):
 
         # Soft update of the target network's weights
         # θ′ ← τ θ + (1 −τ )θ′
-        # target_net_state_dict = target_net.state_dict()
+        target_net_state_dict = target_net.state_dict()
         policy_net_state_dict = policy_net.state_dict()
-        # for key in policy_net_state_dict:
-        #     target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        # target_net.load_state_dict(target_net_state_dict)
+        for key in policy_net_state_dict:
+            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+        target_net.load_state_dict(target_net_state_dict)
 
         if done:
             episode_durations.append(t + 1)
