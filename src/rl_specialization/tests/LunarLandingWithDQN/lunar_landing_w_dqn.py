@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from copy import deepcopy
+import wandb
 
 def softmax(action_values, tau=1.0):
     """
@@ -82,6 +83,7 @@ class Agent():
         self.num_replay = agent_config['num_replay_updates_per_step']
         self.discount = agent_config['gamma']
         self.tau = agent_config['tau']
+        self.eps = 1e-1
         
         self.rand_generator = np.random.RandomState(agent_config.get("seed"))
         
@@ -92,8 +94,7 @@ class Agent():
         self.episode_steps = 0
         self.episode = 0
 
-    # Work Required: No.
-    def policy(self, state):
+    def softmax_policy(self, state):
         """
         Args:
             state (Numpy array): the state.
@@ -101,9 +102,23 @@ class Agent():
             the action. 
         """
         action_values = self.network.get_action_values(state)
-        # tau = 1 * (500 - self.episode) / 500
         probs_batch = softmax(action_values, self.tau)
         action = self.rand_generator.choice(self.num_actions, p=probs_batch.squeeze())
+        return action
+
+    def eps_greedy_policy(self, state):
+        """
+        Args:
+            state (Numpy array): the state.
+        Returns:
+            the action. 
+        """
+        if self.rand_generator.random() < self.eps:
+            action = self.rand_generator.randint(self.num_actions)
+        else:
+            action_values = self.network.get_action_values(state)
+            action = np.argmax(action_values)
+
         return action
 
     # Work Required: No.
@@ -116,10 +131,14 @@ class Agent():
         Returns:
             The first action the agent takes.
         """
+        eps_min = 1e-3
+        decay=0.99
+        self.eps = max(eps_min, self.eps*decay)
+
         self.sum_rewards = 0
         self.episode_steps = 0
         self.last_state = np.array([state])
-        self.last_action = self.policy(self.last_state)
+        self.last_action = self.softmax_policy(self.last_state)
         return self.last_action
 
     # Work Required: Yes. Fill in the action selection, replay-buffer update, 
@@ -144,7 +163,7 @@ class Agent():
 
         # Select action
         # your code here
-        action = self.policy(state)
+        action = self.softmax_policy(state)
         
         # Append new experience to replay buffer
         # Note: look at the replay_buffer append function for the order of arguments
@@ -377,7 +396,7 @@ def optimize_network(experiences, discount, optimizer, network, current_q, tau):
     # your code here
     td_update = network.get_TD_update(states, delta_mat)
     
-    # Pass network.get_weights and the td_update to the optimizer to get updated weights
+    # Pass network.get_weights and the td_update to the opmodeltimizer to get updated weights
     ### START CODE HERE
     weights = None
     ### END CODE HERE
@@ -695,7 +714,7 @@ class ActionValueNetwork1L:
         """
         self.weights = deepcopy(weights)
     
-def run_experiment(num_episodes):
+def run_experiment(num_episodes, minibatch_size, tau):
 
     env = gym.make("LunarLander-v3")
 
@@ -703,22 +722,44 @@ def run_experiment(num_episodes):
              'network_config': {
                  'state_dim': 8,
                  'num_hidden_units': 128,
-                 'num_hidden_layers': 1,
+                 'num_hidden_layers': 2,
                  'num_actions': 4
              },
              'optimizer_config': {
-                 'step_size': 1e-3, 
+                 'step_size': 1e-3,
                  'beta_m': 0.9, 
                  'beta_v': 0.999,
                  'epsilon': 1e-8
              },
              'replay_buffer_size': 10000,
-             'minibatch_sz': 128,
+             'minibatch_sz': minibatch_size,
              'num_replay_updates_per_step': 1,
              'gamma': 0.99,
-             'tau': 0.001,
+             'tau': tau,
              'seed': 0}
 
+    ss = agent_info["optimizer_config"].get("step_size")
+    gamma = agent_info["gamma"]
+    hl = agent_info["network_config"].get("num_hidden_layers")
+    hu = agent_info["network_config"].get("num_hidden_units")
+
+    run = wandb.init(
+        # Set the wandb entity where your project will be logged (generally your team name).
+        entity="orsoromeo91",
+        # Set the wandb project where this run will be logged.
+        project="dqn-lunar-lander",
+        # Track hyperparameters and run metadata.
+        config={
+            "learning_rate": ss,
+            "discount": gamma,
+            "temperature_tau": tau,
+            "architecture": "DQN",
+            "dataset": "softmax-policy",
+            "hidden_layers": hl,
+            "hidden_units": hu,
+            "batch_size": minibatch_size,
+        },
+    )
     agent = Agent()
     agent.init(agent_info)
     rewards = list()
@@ -726,17 +767,15 @@ def run_experiment(num_episodes):
     for episode in np.arange(num_episodes):
         num_steps = 0
         last_state, info = env.reset(seed=agent_info.get("seed"))
+        last_action = agent.start(last_state)
         done = False
-        agent.start(last_state)
         agent.episode = episode
-        last_action = agent.policy(last_state)
         total_reward = 0 
 
         while not done:
 
             new_state, reward, terminated, truncated, _ = env.step(last_action)
             done = terminated or truncated
-            experience = (last_state, last_action, reward, new_state)
             
             action = agent.step(reward, new_state)
             
@@ -752,17 +791,27 @@ def run_experiment(num_episodes):
             last_action = action
         print("Episode", episode, "Total reward", total_reward, "Steps", num_steps)
         rewards.append(total_reward)
+        run.log({"return": total_reward, "steps": num_steps})
+    
+    run.finish()
     return rewards
 
 
 num_tests = 1
 num_episodes = 500
-results = np.zeros(num_episodes)
 
-for _ in np.arange(num_tests):
-    results += run_experiment(num_episodes)
+for bs in [64, 128, 256]:
+    for tau in [0.001, 0.01, 0.1]:
+        run_experiment(num_episodes, bs, tau)
 
-results /= num_tests
-# print("Rewards", results)
-plt.plot(results)
-plt.show()
+
+# results = np.zeros((num_tests, num_episodes))
+# for test in np.arange(num_tests):
+#     results[test, :] = run_experiment(num_episodes)
+
+# avg_result = np.sum(results, axis=0) / num_tests
+# # print("Rewards", results)
+# plt.plot(results.T)
+# plt.plot(avg_result, "r--", label="avg")
+# plt.legend()
+# plt.show()
