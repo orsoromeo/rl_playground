@@ -48,6 +48,11 @@ class Agent():
         
         self.eps = 1e-1
 
+    def greedy_policy(self, state):
+        with torch.no_grad():
+            _, max_action_indices = self.network(state).max(dim=1, keepdims=True)
+        return max_action_indices.cpu().data.numpy()[0][0]
+
     def eps_greedy_policy(self, state):
         """
         Args:
@@ -59,10 +64,7 @@ class Agent():
         if self.rand_generator.random() < 0.1:
             action = self.rand_generator.randint(self.num_actions)
         else:
-            with torch.no_grad():
-                action_values, indices = self.network(state).max(dim=1, keepdims=True)
-                action = indices.cpu().data.numpy()[0][0]
-                # print("Action", action)
+            action = self.greedy_policy(state)
 
         return action
 
@@ -174,7 +176,6 @@ def optimize_network(experiences, discount, optimizer, network, target_net):
     optimizer.step()
 
 class ActionValueNetwork(nn.Module):
-    # Work Required: Yes. Fill in the layer_sizes member variable (~1 Line).
     def __init__(self, network_config):
         super(ActionValueNetwork, self).__init__()
         self.state_dim = network_config.get("state_dim")
@@ -189,14 +190,45 @@ class ActionValueNetwork(nn.Module):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         return self.layer3(x)
-    
-def run_experiment(num_episodes, agent_info):
+
+def run_eval(num_eval_episodes, env, agent):
+
+    rewards = torch.zeros(num_eval_episodes)
+
+    for episode in np.arange(num_eval_episodes):
+        num_steps = 0
+        last_state, info = env.reset()
+        last_state = torch.tensor(last_state, dtype=torch.float32, device=device).unsqueeze(0)
+        done = False
+        total_reward = 0 
+
+        while not done:
+
+            action = agent.greedy_policy(last_state)
+            new_state, reward, terminated, truncated, _ = env.step(action)
+            done = terminated or truncated
+            new_state = torch.tensor(new_state, dtype=torch.float32, device=device).unsqueeze(0)
+
+            total_reward += reward
+
+            last_state = new_state
+            last_action = action
+
+            num_steps += 1
+        
+        print("Evaluation episode", episode, "Total reward", total_reward, "Steps", num_steps)
+        rewards[episode] = total_reward
+
+    return rewards.cpu().data.numpy()
+
+def run_experiment(num_episodes, evaluation_iterations, agent_info, num_evaluations=20):
 
     env = gym.make("LunarLander-v3")
 
     agent = Agent()
     agent.init(agent_info)
     rewards = torch.zeros(num_episodes)
+    evaluation_returns = list()
 
     for episode in np.arange(num_episodes):
         num_steps = 0
@@ -225,7 +257,11 @@ def run_experiment(num_episodes, agent_info):
         
         print("Episode", episode, "Total reward", total_reward, "Steps", num_steps)
         rewards[episode] = total_reward
-    return rewards.cpu().data.numpy()
+
+        if (episode + 1) % evaluation_iterations == 0:
+            evaluation_returns.append(run_eval(num_evaluations, env, agent))
+
+    return rewards.cpu().data.numpy(), evaluation_returns
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
@@ -233,9 +269,10 @@ device = torch.device(
     "cpu"
 )
 
-# step_sizes = 3e-5 * np.power(2.0, np.array([-2, -1, 0, 1, 2, 3, 4, 5]))
 num_tests = 1
-num_episodes = 500
+num_episodes = 300
+evaluation_iterations = 100
+episodes_num_per_evaluation = 20
 
 agent_info = {
          'network_config': {
@@ -254,15 +291,15 @@ agent_info = {
 
 results = np.zeros((1, num_episodes))
 for _ in np.arange(num_tests):
-    results += run_experiment(num_episodes, agent_info)
+    training_res, evaluation_res = run_experiment(num_episodes, evaluation_iterations, agent_info, episodes_num_per_evaluation)
+    for idx, run in enumerate(evaluation_res):
+        plt.plot(run, label='Evaluation '+str(idx))
+    plt.legend()
+    plt.show()
+
+    results += training_res
+
 results /= num_tests
-plt.plot(results[0])
-
-# results = np.zeros((len(step_sizes), num_episodes))
-# for i, step_size in enumerate(step_sizes):
-#     agent_info["optimizer_config"]["step_size"] = step_size
-#     results[i, :] = run_experiment(num_episodes, agent_info)
-# print(results.T)
-# plt.plot(results.T)
-
+plt.plot(results[0], label='Training')
+plt.legend()
 plt.show()
