@@ -6,8 +6,7 @@ import itertools
 from tqdm import tqdm
 
 from rl_glue import RLGlue
-from pendulum_env import PendulumEnvironment
-from agent import BaseAgent
+from pendulum_env import DiscretizedPendulumEnvironment
 import tiles3 as tc
 
 class PendulumTileCoder:
@@ -123,7 +122,7 @@ def compute_softmax_prob(actor_w, tiles):
     
     return softmax_prob
 
-class ActorCriticSoftmaxAgent(BaseAgent): 
+class ActorCriticSoftmaxAgent(): 
     def __init__(self):
         self.rand_generator = None
 
@@ -404,7 +403,7 @@ agent_parameters = {
     "iht_size": 4096
 }
 
-current_env = PendulumEnvironment
+current_env = DiscretizedPendulumEnvironment
 current_agent = ActorCriticSoftmaxAgent
 
 
