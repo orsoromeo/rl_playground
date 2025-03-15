@@ -30,6 +30,5 @@ class DiscretizedPendulumEnvironment():
         assert(action_range>0)
         continuous_action = self.action_min + action_range*discrete_action 
         state, reward, terminated, truncated, info = self.env.step(continuous_action)
-        print("state", state)
         x, y, thetad = state
         return (self.cartesian_to_polar(x,y), thetad), reward, terminated, truncated, info
