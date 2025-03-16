@@ -5,9 +5,10 @@ import os
 import itertools
 from tqdm import tqdm
 
-from rl_glue import RLGlue
+# from rl_glue import RLGlue
 from pendulum_env import DiscretizedPendulumEnvironment
 import tiles3 as tc
+import time
 
 class PendulumTileCoder:
     def __init__(self, iht_size=4096, num_tilings=32, num_tiles=8):
@@ -42,14 +43,9 @@ class PendulumTileCoder:
         
         """
         
-        ### Use the ranges above and scale the angle and angular velocity between [0, 1]
-        # then multiply by the number of tiles so they are scaled between [0, self.num_tiles]
-        
         angle_scaled = 0
         ang_vel_scaled = 0
         
-        # ----------------
-        # your code here
         min_angle = -np.pi
         min_vel = -np.pi*2    
         angle_range = np.pi*2
@@ -58,10 +54,6 @@ class PendulumTileCoder:
         angle_scaled = (angle+min_angle)/angle_range*self.num_tiles
         ang_vel_scaled = (ang_vel+min_vel)/vel_range*self.num_tiles
         
-        # ----------------
-        
-        # Get tiles by calling tc.tileswrap method
-        # wrapwidths specify which dimension to wrap over and its wrapwidth
         tiles = tc.tileswrap(self.iht, self.num_tilings, [angle_scaled, ang_vel_scaled], wrapwidths=[self.num_tiles, False])
                     
         return np.array(tiles)
@@ -78,47 +70,15 @@ def compute_softmax_prob(actor_w, tiles):
     softmax_prob - np.array, an array of size equal to num. actions, and sums to 1.
     """
     
-    # First compute the list of state-action preferences (1~2 lines)
-    # state_action_preferences = ? (list of size 3)
     state_action_preferences = []
-    # ----------------
-    # your code here
     for a in np.arange(len(actor_w)):
         value = actor_w[a][tiles].sum()
         state_action_preferences.append(value)
     
-    
-    # ----------------
-    
-    # Set the constant c by finding the maximum of state-action preferences (use np.max) (1 line)
-    # c = ? (float)
-    # ----------------
-    # your code here
     c = np.max(state_action_preferences)
-    # ----------------
-    
-    # Compute the numerator by subtracting c from state-action preferences and exponentiating it (use np.exp) (1 line)
-    # numerator = ? (list of size 3)
-    # ----------------
-    # your code here
     numerator = np.exp(state_action_preferences - c)
-    # ----------------
-    
-    # Next compute the denominator by summing the values in the numerator (use np.sum) (1 line)
-    # denominator = ? (float)
-    # ----------------
-    # your code here
     denominator = numerator.sum()
-    # ----------------
-    
-    
-    # Create a probability array by dividing each element in numerator array by denominator (1 line)
-    # We will store this probability array in self.softmax_prob as it will be useful later when updating the Actor
-    # softmax_prob = ? (list of size 3)
-    # ----------------
-    # your code here
     softmax_prob = numerator / denominator
-    # ----------------
     
     return softmax_prob
 
@@ -209,6 +169,12 @@ class ActorCriticSoftmaxAgent():
         
         return chosen_action
 
+    def select_greedy_action(self, state):
+        angle, ang_vel = state
+        active_tiles = self.tc.get_tiles(angle, ang_vel)
+        softmax_prob = compute_softmax_prob(self.actor_w, active_tiles)
+        return np.argmax(softmax_prob)
+
     def agent_start(self, state):
         """The first method called when the experiment starts, called after
         the environment starts.
@@ -219,17 +185,8 @@ class ActorCriticSoftmaxAgent():
         """
 
         angle, ang_vel = state
-
-        ### Use self.tc to get active_tiles using angle and ang_vel (2 lines)
-        # set current_action by calling self.agent_policy with active_tiles
-        # active_tiles = ?
-        # current_action = ?
-
-        # ----------------
-        # your code here
         active_tiles = self.tc.get_tiles(angle, ang_vel)
         current_action = self.agent_policy(active_tiles)
-        # ----------------
 
         self.last_action = current_action
         self.prev_tiles = np.copy(active_tiles)
@@ -250,34 +207,16 @@ class ActorCriticSoftmaxAgent():
 
         angle, ang_vel = state
 
-        ### Use self.tc to get active_tiles using angle and ang_vel (1 line)
-        # active_tiles = ?    
-        # ----------------
-        # your code here
         active_tiles = self.tc.get_tiles(angle, ang_vel)
-        # ----------------
-
-        ### Compute delta using Equation (1) (1 line)
-        # delta = ?
-        # ----------------
-        # your code here
         current_state_value = self.critic_w[active_tiles].sum()
         prev_state_value = self.critic_w[self.prev_tiles].sum()
         target = reward - self.avg_reward + current_state_value
         delta = target - prev_state_value
-        # ----------------
 
         ### update average reward using Equation (2) (1 line)
-        # self.avg_reward += ?
-        # ----------------
-        # your code here
         self.avg_reward += self.avg_reward_step_size * delta
-        # ----------------
 
         # update critic weights using Equation (3) and (5) (1 line)
-        # self.critic_w[self.prev_tiles] += ?
-        # ----------------
-        # your code here
         grad = 1
         self.critic_w[self.prev_tiles] += self.critic_step_size * delta * grad
         # ----------------
@@ -292,9 +231,6 @@ class ActorCriticSoftmaxAgent():
                 self.actor_w[a][self.prev_tiles] += self.actor_step_size * delta * (0 - self.softmax_prob[a])
 
         ### set current_action by calling self.agent_policy with active_tiles (1 line)
-        # current_action = ? 
-        # ----------------
-        # your code here
         current_action = self.agent_policy(active_tiles)
         # ----------------
 
@@ -308,11 +244,26 @@ class ActorCriticSoftmaxAgent():
         if message == 'get avg reward':
             return self.avg_reward
 
+    def simulate(self, env):
+        # env = env_class()
+        env = DiscretizedPendulumEnvironment(render=True)
+        state, info = env.env_start()
+        done = False
+        i=0
+        while not done:
+          action = self.select_greedy_action(state)
+          state, reward, terminated, truncated, _ = env.env_step(action.item())
+          done = terminated or truncated
+          i+=1
+          time.sleep(0.01)
+
 
 # Define function to run experiment
 def run_experiment(environment, agent, environment_parameters, agent_parameters, experiment_parameters):
 
-    rl_glue = RLGlue(environment, agent)
+    # rl_glue = RLGlue(environment, agent)
+    # environment = env_class()
+    # agent = agent_class()
             
     # sweep agent parameters
     for num_tilings in agent_parameters['num_tilings']:
@@ -339,8 +290,13 @@ def run_experiment(environment, agent, environment_parameters, agent_parameters,
                             env_info["seed"] = run
                             agent_info["seed"] = run
                 
-                            rl_glue.rl_init(agent_info, env_info)
-                            rl_glue.rl_start()
+                            # rl_glue.rl_init(agent_info, env_info)
+                            agent.agent_init(agent_info)
+                            # rl_glue.rl_start()
+                            last_state, info = environment.env_start()
+                            last_action = agent.agent_start(last_state)
+
+                            observation = (last_state, last_action)
 
                             num_steps = 0
                             total_return = 0.
@@ -354,12 +310,15 @@ def run_experiment(environment, agent, environment_parameters, agent_parameters,
                             while num_steps < experiment_parameters['max_steps']:
                                 num_steps += 1
                                 
-                                rl_step_result = rl_glue.rl_step()
+                                # rl_step_result = rl_glue.rl_step()
+                                state, reward, terminated, truncated, _ = environment.env_step(last_action)
+
+                                last_action = agent.agent_step(reward, state)
+                                # roat = (reward, last_state, self.last_action, terminated)
                                 
-                                reward = rl_step_result[0]
                                 total_return += reward
                                 return_arr.append(reward)
-                                avg_reward = rl_glue.rl_agent_message("get avg reward")
+                                # avg_reward = rl_glue.rl_agent_message("get avg reward")
 
                                 exp_avg_reward_normalizer = exp_avg_reward_normalizer + exp_avg_reward_ss * (1 - exp_avg_reward_normalizer)
                                 ss = exp_avg_reward_ss / exp_avg_reward_normalizer
@@ -403,11 +362,11 @@ agent_parameters = {
     "iht_size": 4096
 }
 
-current_env = DiscretizedPendulumEnvironment
-current_agent = ActorCriticSoftmaxAgent
+pendulum = DiscretizedPendulumEnvironment()
+agent = ActorCriticSoftmaxAgent()
 
 
-run_experiment(current_env, current_agent, environment_parameters, agent_parameters, experiment_parameters)
+run_experiment(pendulum, agent, environment_parameters, agent_parameters, experiment_parameters)
 
 avg_rewards_filename = "results/ActorCriticSoftmax_tilings_32_tiledim_8_actor_ss_0.25_critic_ss_2_avg_reward_ss_0.015625_exp_avg_reward.npy"
 tot_returns_filename = "results/ActorCriticSoftmax_tilings_32_tiledim_8_actor_ss_0.25_critic_ss_2_avg_reward_ss_0.015625_total_return.npy"
@@ -423,3 +382,5 @@ for run in tot_returns:
     plt.plot(run, label='total return')
 plt.legend()
 plt.show()
+
+agent.simulate(pendulum)

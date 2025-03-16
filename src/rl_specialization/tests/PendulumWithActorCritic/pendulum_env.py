@@ -2,9 +2,12 @@ import gymnasium as gym
 import numpy as np
 
 class DiscretizedPendulumEnvironment():
-    def __init__(self, discrete_action_num=3):
+    def __init__(self, discrete_action_num=3, render=False):
         env_name = "Pendulum-v1"
-        self.env = gym.make(env_name)
+        if render:
+            self.env = gym.make(env_name, render_mode='human')
+        else:
+            self.env = gym.make(env_name)
         self.action_min = self.env.action_space.low
         self.action_max = self.env.action_space.high
         self.discrete_action_num = discrete_action_num
