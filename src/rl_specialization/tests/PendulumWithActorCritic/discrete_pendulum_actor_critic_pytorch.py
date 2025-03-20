@@ -9,9 +9,33 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.distributions import Categorical
+
+from collections import namedtuple, deque
 
 from pendulum_env import DiscretizedPendulumEnvironment
 import time
+import random
+
+class ReplayBuffer(object):
+
+    def __init__(self, capacity, batch_size):
+        self.memory = deque([], maxlen=capacity)
+        self.minibatch_size = batch_size
+
+    def append(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
+
+    def sample(self):
+        samples = random.sample(self.memory, self.minibatch_size)
+        return samples
+
+    def size(self):
+        return len(self.memory)
+
+Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
+
 
 class Actor(nn.Module):
     def __init__(self, network_config):
@@ -29,7 +53,7 @@ class Actor(nn.Module):
     def forward(self, state):
         x = F.relu(self.layer1(state))
         x = F.relu(self.layer2(x))
-        temperature=100
+        temperature=1.0
         return self.softmax(self.layer3(x)/temperature)
 
 class Critic(nn.Module):
@@ -73,24 +97,20 @@ class ActorCriticSoftmaxAgent():
         self.critic_optimizer = optim.Adam(self.critic_w.parameters(), lr=self.critic_step_size)
         self.actor_optimizer = optim.Adam(self.actor_w.parameters(), lr=self.actor_step_size)
 
-        self.softmax_prob = None
-        self.prev_tiles = None
-        self.last_action = None
-    
+        capacity = 10000
+        minibatch_size = 128
+        self.replay_buffer = ReplayBuffer(capacity, minibatch_size)
+
+
     def agent_policy(self, state):
         
         # compute softmax probability
         softmax_prob = self.actor_w(state)
-        # print("probs", softmax_prob)
         
         # Sample action from the softmax probability array
         # self.rand_generator.choice() selects an element from the array with the specified probability
         # print("probs",softmax_prob.cpu().data.numpy()[0])
         chosen_action = self.rand_generator.choice(self.actions, p=softmax_prob.cpu().data.numpy()[0])
-        
-        # save softmax_prob as it will be useful later when updating the Actor
-        self.softmax_prob = softmax_prob
-        
         return chosen_action
 
     # def select_greedy_action(self, state):
@@ -107,19 +127,10 @@ class ActorCriticSoftmaxAgent():
         Returns:
             The first action the agent takes.
         """
+        action = self.agent_policy(state)
+        return action
 
-        # angle, ang_vel = state
-        # active_tiles = self.tc.get_tiles(angle, ang_vel)
-        current_action = self.agent_policy(state)
-
-        self.last_action = current_action
-        # self.prev_tiles = np.copy(active_tiles)
-        self.prev_state = state
-
-        return self.last_action
-
-
-    def agent_step(self, reward, state):
+    def agent_step(self, state):
         """A step taken by the agent.
         Args:
             reward (float): the reward received for taking the last action taken
@@ -129,25 +140,31 @@ class ActorCriticSoftmaxAgent():
         Returns:
             The action the agent is taking.
         """
-        current_state_value = self.critic_w(state)
-        prev_state_value = self.critic_w(self.prev_state)
-        target = reward - self.avg_reward + current_state_value
-        td_error = target - prev_state_value
-        td_error = torch.tensor(td_error, dtype=torch.float32, requires_grad=True)
+        if self.replay_buffer.size() > self.replay_buffer.minibatch_size:
+            experiences = self.replay_buffer.sample()
+            batch = Transition(*zip(*experiences))
+            prev_state_batch = torch.cat(batch.state)
+            prev_action_batch = torch.cat(batch.action).reshape(self.replay_buffer.minibatch_size, 1)
+            reward_batch = torch.cat(batch.reward).reshape(self.replay_buffer.minibatch_size, 1)
+            next_state_batch = torch.cat(batch.next_state)
+            # Estimate target update
+            current_state_value = self.critic_w(next_state_batch)
+            prev_state_value = self.critic_w(prev_state_batch)
+            target = reward_batch - self.avg_reward + current_state_value
+            td_error = target - prev_state_value
+            td_error = torch.tensor(td_error, dtype=torch.float32, requires_grad=True)
+            # print("value", current_state_value.shape, td_error.shape, reward_batch.shape)
 
-        ### update average reward using Equation (2) (1 line)
-        self.avg_reward += self.avg_reward_step_size * td_error
+            ### update average reward using Equation (2) (1 line)
+            self.avg_reward += self.avg_reward_step_size * td_error
 
-        optimize_critic(td_error, self.critic_optimizer, self.critic_w)
-        optimize_actor(td_error, state, self.last_action, self.actor_optimizer, self.actor_w)
+            optimize_critic(target, prev_state_value, self.critic_optimizer, self.critic_w)
+            optimize_actor(target, prev_state_value, prev_state_batch, prev_action_batch, self.actor_optimizer, self.actor_w)
 
         current_action = self.agent_policy(state)
         # ----------------
 
-        self.prev_state = state
-        self.last_action = current_action
-
-        return self.last_action
+        return current_action
 
     def simulate(self):
         env = DiscretizedPendulumEnvironment(render=True)
@@ -161,20 +178,28 @@ class ActorCriticSoftmaxAgent():
           i+=1
           time.sleep(0.01)
 
-def optimize_critic(delta, optimizer, critic_net):
-
-    loss = delta**2
+def optimize_critic(target, prev_value, optimizer, critic_net):
+    # delta = target - prev_value
+    # loss = delta**2
+    # print(target.shape, prev_value.shape)
+    mse_loss = nn.MSELoss()
+    loss = mse_loss(target, prev_value)
 
     # Optimize the model
     optimizer.zero_grad()
-    loss.backward()
+    loss.backward(retain_graph=True)
     # torch.nn.utils.clip_grad_value_(network.parameters(), 100)
     optimizer.step()
 
-def optimize_actor(delta, state, action, optimizer, actor_net):
+def optimize_actor(target, prev_state_value, state, action, optimizer, actor_net):
     # print("action", action, actor_net(state))
-    prob = actor_net(state)[0][action]
-    loss = -torch.log(prob)*delta.detach()
+    # print("prob", state.shape, action.shape)
+    # prob = actor_net(state).gather(1, action)
+    probs = actor_net(state)
+    p = Categorical(probs)
+    delta = target - prev_state_value
+    loss = - (p.log_prob(action)*delta.detach()).mean()
+    # loss = -torch.log(prob)*delta.detach()
 
     # Optimize the model
     optimizer.zero_grad()
@@ -221,24 +246,31 @@ def run_experiment(environment_parameters, agent_parameters, experiment_paramete
                     exp_avg_reward_ss = 0.01
                     exp_avg_reward_normalizer = 0
                     while num_steps < experiment_parameters['max_steps']:
+                        # print("step", num_steps)
                         num_steps += 1
                         
+                        # try:
+                        action = agent.agent_step(last_state)
+                        # except:
+                        #     print("NAN!")
+                        #     break                        
+
                         state, reward, terminated, truncated, _ = environment.env_step(last_action)
-                        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-                        try:
-                            last_action = agent.agent_step(reward, state)
-                        except:
-                            print("NAN!")
-                            break                        
                         total_return += reward
                         return_arr.append(reward)
-                        # exp_avg_reward_normalizer = exp_avg_reward_normalizer + exp_avg_reward_ss * (1 - exp_avg_reward_normalizer)
-                        # ss = exp_avg_reward_ss / exp_avg_reward_normalizer
-                        # exp_avg_reward += ss * (reward - exp_avg_reward)
+
                         exp_avg_reward += reward - exp_avg_reward
+
+                        state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                        reward = torch.tensor(reward, dtype=torch.float32).unsqueeze(0)
+                        last_action = torch.tensor(last_action, dtype=torch.int64).unsqueeze(0)
+                        agent.replay_buffer.append(last_state, last_action, reward, state)
                         
                         return_per_step[run-1][num_steps-1] = total_return
                         exp_avg_reward_per_step[run-1][num_steps-1] = exp_avg_reward
+
+                        last_action = action
+                        last_state = state
                                                 
                 if not os.path.exists('results'):
                     os.makedirs('results')
@@ -268,13 +300,13 @@ environment_parameters = {}
 # Agent parameters
 # Each element is an array because we will be later sweeping over multiple values
 # actor and critic step-sizes are divided by num. tilings inside the agent
-actor_params = np.arange(-6, 2, step=2)
+actor_params = np.arange(-1, 2, step=1)
 a_params = [2.0**float(n) for n in actor_params]
 
-critic_params = np.arange(-4, 3, step=2)
+critic_params = np.arange(-5, -2, step=1)
 c_params = [2.0**float(n) for n in critic_params]
 
-rewards_params = np.arange(-11, -1, step=2)
+rewards_params = np.arange(-10, -7, step=1)
 r_params = [2.0**float(n) for n in rewards_params]
 
 # print("params", actor_params, a_params)
